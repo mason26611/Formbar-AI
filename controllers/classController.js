@@ -69,23 +69,45 @@ const getClasses = async (req, res) => {
   }
 };
 
+// Helper function to generate a random class code
+const generateClassCode = () => {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return code;
+};
+
 // @desc    Create a new class
 // @route   POST /api/classes
 // @access  Private (Teacher/Manager)
 const createClass = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, subject } = req.body;
+
+    // Generate a unique code
+    let code;
+    let isUnique = false;
+    while (!isUnique) {
+      code = generateClassCode();
+      const existingClass = await Class.findOne({ where: { code } });
+      if (!existingClass) {
+        isUnique = true;
+      }
+    }
 
     const newClass = await Class.create({
       name,
-      description,
+      subject,
+      code,
       teacherId: req.user.id
     });
 
     res.status(201).json(newClass);
   } catch (error) {
     console.error('Create class error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: error.message || 'Server error' });
   }
 };
 

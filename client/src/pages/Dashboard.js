@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import {
   Box,
   Container,
@@ -31,7 +32,7 @@ import {
   Cancel as CancelIcon
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
-import axios from 'axios';
+import { api } from '../context/AuthContext';
 
 const StyledCard = styled(Card)(({ theme }) => ({
   height: '100%',
@@ -54,44 +55,54 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
-  const [newClass, setNewClass] = useState({ name: '', subject: '' });
+  const [newClass, setNewClass] = useState({ 
+    name: '', 
+    subject: ''
+  });
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
     fetchClasses();
-  }, []);
+  }, [user, navigate]);
 
   const fetchClasses = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/classes', {
-        withCredentials: true
-      });
+      const response = await api.get('/classes');
       setClasses(response.data);
       setLoading(false);
     } catch (err) {
-      setError('Failed to fetch classes');
+      if (err.response?.status === 401) {
+        navigate('/login');
+      } else {
+        setError('Failed to fetch classes');
+      }
       setLoading(false);
     }
   };
 
   const handleCreateClass = async () => {
     try {
-      await axios.post('http://localhost:5000/api/classes', newClass, {
-        withCredentials: true
-      });
+      if (!newClass.name || !newClass.subject) {
+        setError('Please fill in all fields');
+        return;
+      }
+      await api.post('/classes', newClass);
       setOpenDialog(false);
       setNewClass({ name: '', subject: '' });
       fetchClasses();
     } catch (err) {
-      setError('Failed to create class');
+      setError(err.response?.data?.message || 'Failed to create class');
     }
   };
 
   const handleJoinClass = async (classId) => {
     try {
-      await axios.post(`http://localhost:5000/api/classes/${classId}/join`, {}, {
-        withCredentials: true
-      });
+      await api.post(`/classes/${classId}/join`);
       fetchClasses();
     } catch (err) {
       setError('Failed to join class');
@@ -228,14 +239,15 @@ const Dashboard = () => {
               autoFocus
               margin="dense"
               label="Class Name"
+              type="text"
               fullWidth
               value={newClass.name}
               onChange={(e) => setNewClass({ ...newClass, name: e.target.value })}
-              sx={{ mb: 2 }}
             />
             <TextField
               margin="dense"
               label="Subject"
+              type="text"
               fullWidth
               value={newClass.subject}
               onChange={(e) => setNewClass({ ...newClass, subject: e.target.value })}
@@ -243,17 +255,7 @@ const Dashboard = () => {
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-            <Button
-              onClick={handleCreateClass}
-              variant="contained"
-              disabled={!newClass.name || !newClass.subject}
-              sx={{
-                backgroundColor: '#1a237e',
-                '&:hover': {
-                  backgroundColor: '#0d47a1',
-                }
-              }}
-            >
+            <Button onClick={handleCreateClass} variant="contained" color="primary">
               Create
             </Button>
           </DialogActions>

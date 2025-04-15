@@ -80,24 +80,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
-  const { login } = useAuth();
-
-  const fetchUser = useCallback(async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/auth/me', {
-        withCredentials: true
-      });
-      if (response.data) {
-        navigate('/dashboard');
-      }
-    } catch (err) {
-      console.error('Error fetching user:', err);
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    fetchUser();
-  }, [fetchUser]);
+  const { login, user } = useAuth();
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -109,8 +92,12 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await login(formData);
-      navigate('/dashboard');
+      const result = await login(formData);
+      if (result.success) {
+        navigate('/dashboard');
+      } else {
+        setError(result.error || 'Login failed');
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'An error occurred during login');
     } finally {
