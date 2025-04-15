@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import ClassDetail from './pages/ClassDetail';
+import JoinClass from './pages/JoinClass';
 
 const theme = createTheme({
   palette: {
@@ -67,6 +68,14 @@ const App = () => {
               element={
                 <PrivateRoute>
                   <ClassDetail />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/join"
+              element={
+                <PrivateRoute>
+                  <JoinClass />
                 </PrivateRoute>
               }
             />

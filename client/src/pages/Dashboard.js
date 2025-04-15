@@ -20,7 +20,9 @@ import {
   Avatar,
   Tooltip,
   CircularProgress,
-  Alert
+  Alert,
+  InputAdornment,
+  Divider
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -29,7 +31,9 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon
+  Cancel as CancelIcon,
+  ContentCopy as ContentCopyIcon,
+  LoginOutlined as JoinIcon
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import { api } from '../context/AuthContext';
@@ -55,6 +59,10 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
+  const [openJoinDialog, setOpenJoinDialog] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
+  const [joinError, setJoinError] = useState('');
+  const [joinSuccess, setJoinSuccess] = useState('');
   const [newClass, setNewClass] = useState({ 
     name: '', 
     subject: ''
@@ -109,6 +117,41 @@ const Dashboard = () => {
     }
   };
 
+  const handleJoinClassWithCode = async () => {
+    try {
+      setJoinError('');
+      setJoinSuccess('');
+      
+      if (!joinCode.trim()) {
+        setJoinError('Please enter a class code');
+        return;
+      }
+      
+      const response = await api.post('/classes/join', { classCode: joinCode.trim() });
+      setJoinSuccess(response.data.message);
+      setJoinCode('');
+      fetchClasses();
+      
+      // Close the dialog after a short delay
+      setTimeout(() => {
+        setOpenJoinDialog(false);
+        setJoinSuccess('');
+      }, 2000);
+    } catch (err) {
+      setJoinError(err.response?.data?.message || 'Failed to join class');
+    }
+  };
+  
+  const copyClassCode = (code) => {
+    navigator.clipboard.writeText(code)
+      .then(() => {
+        // Could add a toast notification here
+      })
+      .catch(err => {
+        console.error('Failed to copy text: ', err);
+      });
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
@@ -124,19 +167,33 @@ const Dashboard = () => {
           <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold', color: '#1a237e' }}>
             My Classes
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setOpenDialog(true)}
-            sx={{
-              background: 'linear-gradient(45deg, #8E2DE2, #4A00E0)',
-              '&:hover': {
-                background: 'linear-gradient(45deg, #7B1FA2, #3F51B5)',
-              },
-            }}
-          >
-            Create Class
-          </Button>
+          <Box>
+            {user?.role === 'student' && (
+              <Button
+                variant="outlined"
+                startIcon={<JoinIcon />}
+                onClick={() => setOpenJoinDialog(true)}
+                sx={{ mr: 2 }}
+              >
+                Join Class
+              </Button>
+            )}
+            {(user?.role === 'teacher' || user?.role === 'manager') && (
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setOpenDialog(true)}
+                sx={{
+                  background: 'linear-gradient(45deg, #8E2DE2, #4A00E0)',
+                  '&:hover': {
+                    background: 'linear-gradient(45deg, #7B1FA2, #3F51B5)',
+                  },
+                }}
+              >
+                Create Class
+              </Button>
+            )}
+          </Box>
         </Box>
 
         {error && (
@@ -159,6 +216,21 @@ const Dashboard = () => {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     {classItem.subject}
                   </Typography>
+                  {/* Show class code for teachers */}
+                  {(user?.role === 'teacher' || user?.role === 'manager') && classItem.teacherId === user.id && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, p: 1, bgcolor: 'rgba(26, 35, 126, 0.05)', borderRadius: 1 }}>
+                      <Typography variant="body2" sx={{ mr: 1 }}>
+                        Join Code: <strong>{classItem.code}</strong>
+                      </Typography>
+                      <IconButton 
+                        size="small" 
+                        onClick={() => copyClassCode(classItem.code)}
+                        sx={{ color: '#1a237e' }}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  )}
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
                     <Chip
                       icon={<PollIcon />}
@@ -257,6 +329,68 @@ const Dashboard = () => {
             <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
             <Button onClick={handleCreateClass} variant="contained" color="primary">
               Create
+            </Button>
+          </DialogActions>
+        </Dialog>
+        
+        {/* Join Class Dialog */}
+        <Dialog open={openJoinDialog} onClose={() => {
+          setOpenJoinDialog(false);
+          setJoinCode('');
+          setJoinError('');
+          setJoinSuccess('');
+        }}>
+          <DialogTitle>Join a Class</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Enter the class code provided by your teacher to join the class.
+            </Typography>
+            
+            {joinError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {joinError}
+              </Alert>
+            )}
+            
+            {joinSuccess && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {joinSuccess}
+              </Alert>
+            )}
+            
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Class Code"
+              type="text"
+              fullWidth
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SchoolIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => {
+              setOpenJoinDialog(false);
+              setJoinCode('');
+              setJoinError('');
+              setJoinSuccess('');
+            }}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleJoinClassWithCode} 
+              variant="contained" 
+              color="primary"
+              disabled={!!joinSuccess}
+            >
+              Join
             </Button>
           </DialogActions>
         </Dialog>

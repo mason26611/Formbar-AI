@@ -25,7 +25,9 @@ import {
   CircularProgress,
   Alert,
   Tabs,
-  Tab
+  Tab,
+  Paper,
+  Tooltip
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -35,10 +37,12 @@ import {
   Delete as DeleteIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
-  Person as PersonIcon
+  Person as PersonIcon,
+  ContentCopy as ContentCopyIcon
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import api from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 
 const StyledCard = styled(Card)(({ theme }) => ({
   marginBottom: theme.spacing(3),
@@ -63,6 +67,8 @@ const ClassDetail = () => {
   const [openPollDialog, setOpenPollDialog] = useState(false);
   const [newPoll, setNewPoll] = useState({ question: '', options: ['', ''] });
   const [activeTab, setActiveTab] = useState(0);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     fetchClassDetails();
@@ -117,6 +123,17 @@ const ClassDetail = () => {
     }
   };
 
+  const copyClassCode = (code) => {
+    navigator.clipboard.writeText(code)
+      .then(() => {
+        setCodeCopied(true);
+        setTimeout(() => setCodeCopied(false), 2000);
+      })
+      .catch(err => {
+        console.error('Failed to copy text: ', err);
+      });
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
@@ -143,6 +160,25 @@ const ClassDetail = () => {
           <Typography variant="subtitle1" color="text.secondary">
             {classData.subject}
           </Typography>
+          
+          {/* Display join code for teachers */}
+          {user && (user.role === 'teacher' || user.role === 'manager') && classData.teacherId === user.id && (
+            <Paper sx={{ mt: 2, p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 400 }}>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Class Join Code
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', letterSpacing: 1 }}>
+                  {classData.code}
+                </Typography>
+              </Box>
+              <Tooltip title={codeCopied ? "Copied!" : "Copy code"}>
+                <IconButton onClick={() => copyClassCode(classData.code)}>
+                  <ContentCopyIcon />
+                </IconButton>
+              </Tooltip>
+            </Paper>
+          )}
         </Box>
 
         {error && (

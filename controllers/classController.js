@@ -182,13 +182,30 @@ const getStudentClasses = async (req, res) => {
 // @access  Private (Student)
 const joinClass = async (req, res) => {
   try {
-    const { classId } = req.body;
-    const classData = await Class.findByPk(classId);
+    const { classId, classCode } = req.body;
+    
+    let classData;
+    
+    if (classId) {
+      classData = await Class.findByPk(classId);
+    } else if (classCode) {
+      classData = await Class.findOne({ where: { code: classCode } });
+    } else {
+      return res.status(400).json({ message: 'Class ID or class code is required' });
+    }
+    
     if (!classData) {
       return res.status(404).json({ message: 'Class not found' });
     }
+    
+    // Check if user is already a student in this class
+    const isAlreadyEnrolled = await classData.hasStudent(req.user.id);
+    if (isAlreadyEnrolled) {
+      return res.status(400).json({ message: 'You are already enrolled in this class' });
+    }
+    
     await classData.addStudent(req.user.id);
-    res.json({ message: 'Successfully joined class' });
+    res.json({ message: 'Successfully joined class', classId: classData.id });
   } catch (error) {
     console.error('Join class error:', error);
     res.status(500).json({ message: 'Server error' });
