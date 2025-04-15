@@ -38,7 +38,7 @@ import {
   Person as PersonIcon
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
-import axios from 'axios';
+import api from '../utils/api';
 
 const StyledCard = styled(Card)(({ theme }) => ({
   marginBottom: theme.spacing(3),
@@ -70,24 +70,24 @@ const ClassDetail = () => {
 
   const fetchClassDetails = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/classes/${id}`, {
-        withCredentials: true
-      });
+      const response = await api.get(`/classes/${id}`);
       setClassData(response.data);
       setLoading(false);
     } catch (err) {
-      setError('Failed to fetch class details');
+      if (err.response?.status === 401) {
+        navigate('/login');
+      } else {
+        setError('Failed to fetch class details');
+      }
       setLoading(false);
     }
   };
 
   const handleCreatePoll = async () => {
     try {
-      await axios.post(`http://localhost:5000/api/polls`, {
+      await api.post('/polls', {
         ...newPoll,
         classId: id
-      }, {
-        withCredentials: true
       });
       setOpenPollDialog(false);
       setNewPoll({ question: '', options: ['', ''] });
@@ -99,10 +99,8 @@ const ClassDetail = () => {
 
   const handleSubmitResponse = async (pollId, option) => {
     try {
-      await axios.post(`http://localhost:5000/api/polls/${pollId}/respond`, {
+      await api.post(`/polls/${pollId}/respond`, {
         option
-      }, {
-        withCredentials: true
       });
       fetchClassDetails();
     } catch (err) {
@@ -112,9 +110,7 @@ const ClassDetail = () => {
 
   const handleTogglePoll = async (pollId) => {
     try {
-      await axios.patch(`http://localhost:5000/api/polls/${pollId}/toggle`, {}, {
-        withCredentials: true
-      });
+      await api.patch(`/polls/${pollId}/toggle`);
       fetchClassDetails();
     } catch (err) {
       setError('Failed to toggle poll');
@@ -199,12 +195,12 @@ const ClassDetail = () => {
                           <Grid item xs={12} sm={6} key={index}>
                             <Button
                               fullWidth
-                              variant={poll.userResponse === option ? 'contained' : 'outlined'}
-                              onClick={() => handleSubmitResponse(poll.id, option)}
-                              disabled={!poll.isActive || poll.userResponse}
+                              variant={poll.userResponse === index ? 'contained' : 'outlined'}
+                              onClick={() => handleSubmitResponse(poll.id, index)}
+                              disabled={!poll.isActive || poll.userResponse !== null}
                               sx={{ mb: 1 }}
                             >
-                              {option}
+                              {option.text}
                             </Button>
                           </Grid>
                         ))}
@@ -219,7 +215,7 @@ const ClassDetail = () => {
                             {poll.responses.map((response, index) => (
                               <Chip
                                 key={index}
-                                label={response.option}
+                                label={poll.options[response.optionIndex].text}
                                 size="small"
                                 sx={{ mb: 1 }}
                               />
