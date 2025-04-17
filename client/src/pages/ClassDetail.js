@@ -45,6 +45,11 @@ import { styled } from '@mui/material/styles';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { Doughnut } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
+
+// Register ChartJS components
+ChartJS.register(ArcElement, ChartTooltip, Legend);
 
 // Create a simple chart component to replace recharts
 const SimpleBarChart = ({ data }) => {
@@ -395,28 +400,27 @@ const ClassDetail = () => {
 
   // Convert poll data to format for chart
   const getPollChartData = (poll) => {
-    if (!poll || !poll.options) return [];
+    if (!poll || !poll.options) return { labels: [], datasets: [] };
     
-    console.log("Processing poll data:", poll);
-    console.log("Poll responses:", poll.responses);
+    // Extract option names and response counts
+    const labels = poll.options.map((option, index) => 
+      typeof option === 'string' ? option : option.text || `Option ${index + 1}`
+    );
     
-    // Count responses for each option
-    const responseCounts = poll.options.map((option, index) => {
-      const count = poll.responses?.filter(r => r.optionIndex === index).length || 0;
-      // Handle different option structures
-      const optionText = typeof option === 'string' ? option : option.text || `Option ${index + 1}`;
-      
-      return {
-        name: optionText,
-        value: count,
-        optionIndex: index
-      };
-    });
+    const data = poll.options.map((option, index) => 
+      poll.responses?.filter(r => r.optionIndex === index).length || 0
+    );
     
-    console.log("Response counts:", responseCounts);
-    
-    // Filter out options with zero responses for a cleaner chart
-    return responseCounts.filter(item => item.value > 0);
+    // Return in Chart.js format
+    return {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: COLORS,
+        borderWidth: 1,
+        hoverOffset: 4
+      }]
+    };
   };
 
   if (loading) {
@@ -715,10 +719,37 @@ const ClassDetail = () => {
                             {poll.question}
                           </Typography>
                           
-                          <Box sx={{ height: 300 }}>
-                            <SimplePieVisualization 
+                          <Box sx={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                            <Doughnut 
                               data={getPollChartData(poll)}
-                              title="Response Distribution"
+                              options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                  legend: {
+                                    position: 'right',
+                                    labels: {
+                                      padding: 20,
+                                      boxWidth: 12,
+                                      font: {
+                                        size: 12
+                                      }
+                                    }
+                                  },
+                                  tooltip: {
+                                    callbacks: {
+                                      label: (context) => {
+                                        const label = context.label || '';
+                                        const value = context.raw || 0;
+                                        const total = context.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                        const percentage = Math.round((value / total) * 100);
+                                        return `${label}: ${value} (${percentage}%)`;
+                                      }
+                                    }
+                                  }
+                                },
+                                cutout: '60%'
+                              }}
                             />
                           </Box>
                           
