@@ -60,7 +60,7 @@ User.associate = (models) => {
 
   // A user can be a student in many classes
   User.belongsToMany(models.Class, {
-    through: 'ClassStudents',
+    through: models.ClassStudents,
     as: 'enrolledClasses',
     foreignKey: 'studentId',
     otherKey: 'classId'

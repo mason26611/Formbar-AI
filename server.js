@@ -10,6 +10,7 @@ const User = require('./models/User');
 const Class = require('./models/Class');
 const Poll = require('./models/Poll');
 const PollResponse = require('./models/PollResponse');
+const ClassStudents = require('./models/ClassStudents');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -21,7 +22,13 @@ const server = http.createServer(app);
 
 // Configure CORS
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  const origin = req.headers.origin;
+  
+  // Allow any origin that sends a request
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -35,20 +42,26 @@ app.use((req, res, next) => {
 // Middleware
 app.use(express.json());
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/classes', classRoutes);
-app.use('/api/polls', pollRoutes);
-
 // Socket.io configuration
 const io = socketIo(server, {
   cors: {
-    origin: 'http://localhost:3000',
+    origin: true, // Allow any origin
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
   }
 });
+
+// Add Socket.IO to request object
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/classes', classRoutes);
+app.use('/api/polls', pollRoutes);
 
 // Socket.io connection
 io.on('connection', (socket) => {
@@ -64,7 +77,8 @@ const models = {
   User,
   Class,
   Poll,
-  PollResponse
+  PollResponse,
+  ClassStudents
 };
 
 // Initialize all model associations
@@ -75,7 +89,7 @@ Object.values(models).forEach((model) => {
 });
 
 // Database synchronization
-sequelize.sync({ alter: true })
+sequelize.sync({ alter: false })
   .then(() => {
     console.log('Database synchronized');
     const PORT = process.env.PORT || 5000;

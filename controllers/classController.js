@@ -1,6 +1,8 @@
 const Class = require('../models/Class');
 const User = require('../models/User');
 const Poll = require('../models/Poll');
+const PollResponse = require('../models/PollResponse');
+const sequelize = require('../config/database');
 
 // @desc    Get all classes for current user
 // @route   GET /api/classes
@@ -204,8 +206,29 @@ const joinClass = async (req, res) => {
       return res.status(400).json({ message: 'You are already enrolled in this class' });
     }
     
-    await classData.addStudent(req.user.id);
-    res.json({ message: 'Successfully joined class', classId: classData.id });
+    // Use try/catch to handle potential errors during the addStudent operation
+    try {
+      // More direct approach using ClassStudents model
+      const ClassStudents = sequelize.model('ClassStudents');
+      await ClassStudents.create({
+        classId: classData.id,
+        studentId: req.user.id
+      });
+      
+      res.json({ 
+        message: 'Successfully joined class', 
+        classId: classData.id 
+      });
+    } catch (joinError) {
+      console.error('Error joining class:', joinError);
+      
+      // Check if it's a unique constraint error (student already in class)
+      if (joinError.name === 'SequelizeUniqueConstraintError') {
+        return res.status(400).json({ message: 'You are already enrolled in this class' });
+      }
+      
+      throw joinError; // Re-throw to be caught by outer catch
+    }
   } catch (error) {
     console.error('Join class error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -237,6 +260,10 @@ const getClassById = async (req, res) => {
               model: User,
               as: 'respondents',
               attributes: ['id', 'name', 'email']
+            },
+            {
+              model: PollResponse,
+              as: 'responses'
             }
           ]
         }

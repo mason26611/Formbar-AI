@@ -91,6 +91,27 @@ const Register = () => {
     e.preventDefault();
     setError('');
 
+    // Basic form validation
+    if (!formData.name.trim()) {
+      setError('Please enter your name');
+      return;
+    }
+
+    if (!formData.email.trim()) {
+      setError('Please enter your email address');
+      return;
+    }
+
+    if (!formData.password) {
+      setError('Please enter a password');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -98,17 +119,25 @@ const Register = () => {
 
     setLoading(true);
     try {
+      console.log('Submitting registration form with:', {
+        name: formData.name,
+        email: formData.email,
+        password: formData.password.length + ' characters'
+      });
+      
       const result = await register({
         name: formData.name,
         email: formData.email,
         password: formData.password,
       });
+      
       if (result.success) {
         navigate('/dashboard');
       } else {
         setError(result.error);
       }
     } catch (err) {
+      console.error('Registration component error:', err);
       setError('An error occurred during registration');
     } finally {
       setLoading(false);

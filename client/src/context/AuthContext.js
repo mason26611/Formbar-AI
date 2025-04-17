@@ -82,7 +82,10 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (formData) => {
     try {
+      console.log('Attempting registration with:', formData);
       const response = await api.post('/auth/register', formData);
+      console.log('Registration response:', response.data);
+      
       if (response.data.token && response.data.user) {
         localStorage.setItem('token', response.data.token);
         setUser(response.data.user);
@@ -90,7 +93,15 @@ export const AuthProvider = ({ children }) => {
       }
       throw new Error('No token or user data in response');
     } catch (error) {
-      return { success: false, error: error.response?.data?.message || 'Registration failed' };
+      console.error('Registration error:', error);
+      console.error('Error response data:', error.response?.data);
+      console.error('Error message:', error.message);
+      
+      // Return a more detailed error message
+      return { 
+        success: false, 
+        error: error.response?.data?.error || error.response?.data?.message || 'Registration failed' 
+      };
     }
   };
 

@@ -84,6 +84,19 @@ exports.submitResponse = async (req, res) => {
     const { optionIndex } = req.body;
     const pollId = req.params.pollId;
 
+    // Debug log
+    console.log('Submitting response:', { 
+      pollId, 
+      optionIndex, 
+      body: req.body,
+      userId: req.user.id 
+    });
+
+    // Validate optionIndex
+    if (optionIndex === undefined || optionIndex === null) {
+      return res.status(400).json({ message: 'Option index is required' });
+    }
+
     // Check if poll exists and is active
     const poll = await Poll.findByPk(pollId);
     if (!poll) {
@@ -101,28 +114,47 @@ exports.submitResponse = async (req, res) => {
       }
     });
 
+    // If the student has already responded, update their response
     if (existingResponse) {
-      return res.status(400).json({ message: 'You have already responded to this poll' });
+      // Get previous option index to adjust counts
+      const previousOptionIndex = existingResponse.optionIndex;
+      
+      // Update options count - decrement old choice
+      const options = [...poll.options];
+      if (options[previousOptionIndex] && options[previousOptionIndex].votes > 0) {
+        options[previousOptionIndex].votes -= 1;
+      }
+      
+      // Increment new choice
+      options[optionIndex].votes += 1;
+      
+      // Update poll options
+      await poll.update({ options });
+      
+      // Update student response
+      await existingResponse.update({ optionIndex });
+    } else {
+      // Create new response
+      await PollResponse.create({
+        pollId,
+        studentId: req.user.id,
+        optionIndex
+      });
+
+      // Update poll options votes
+      const options = [...poll.options];
+      options[optionIndex].votes += 1;
+      await poll.update({ options });
     }
 
-    // Create response
-    await PollResponse.create({
-      pollId,
-      studentId: req.user.id,
-      optionIndex
-    });
-
-    // Update poll options votes
-    const options = [...poll.options];
-    options[optionIndex].votes += 1;
-    await poll.update({ options });
-
-    // Emit socket event
-    req.io.emit('newAnswer', {
-      pollId,
-      optionIndex,
-      studentId: req.user.id
-    });
+    // Emit socket event if Socket.IO is available
+    if (req.io) {
+      req.io.emit('newAnswer', {
+        pollId,
+        optionIndex,
+        studentId: req.user.id
+      });
+    }
 
     res.json({ message: 'Response submitted successfully' });
   } catch (error) {
@@ -161,6 +193,10 @@ exports.getPollById = async (req, res) => {
           model: User,
           as: 'respondents',
           attributes: ['id', 'name', 'email']
+        },
+        {
+          model: PollResponse,
+          as: 'responses'
         }
       ]
     });

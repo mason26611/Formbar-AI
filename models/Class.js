@@ -36,7 +36,7 @@ Class.associate = (models) => {
     foreignKey: 'teacherId' 
   });
   Class.belongsToMany(models.User, { 
-    through: 'ClassStudents',
+    through: models.ClassStudents,
     as: 'students',
     foreignKey: 'classId',
     otherKey: 'studentId'
