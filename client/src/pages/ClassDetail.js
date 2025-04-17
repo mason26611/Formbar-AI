@@ -44,7 +44,7 @@ import {
 import { styled } from '@mui/material/styles';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
-import { io } from 'socket.io-client';
+import { useSocket } from '../context/SocketContext';
 
 // Create a simple chart component to replace recharts
 const SimpleBarChart = ({ data }) => {
@@ -167,80 +167,123 @@ const ClassDetail = () => {
   const [codeCopied, setCodeCopied] = useState(false);
   const { user } = useAuth();
   const [activePoll, setActivePoll] = useState(null);
+  const { joinClassRoom, leaveClassRoom, subscribe } = useSocket();
+  const [socketUpdate, setSocketUpdate] = useState(null);
 
   useEffect(() => {
     fetchClassDetails();
 
-    // Set up Socket.IO connection
-    const socket = io('http://localhost:5000', {
-      withCredentials: true
+    // Join class room for real-time updates
+    joinClassRoom(id);
+
+    // Set up event listeners for poll-related events
+    const unsubscribeNewPoll = subscribe('newPoll', (data) => {
+      console.log('New poll created:', data);
+      if (data.classId === parseInt(id)) {
+        fetchClassDetails();
+      }
     });
 
-    socket.on('connect', () => {
-      console.log('Connected to Socket.IO server');
+    const unsubscribePollResponse = subscribe('pollResponse', (data) => {
+      console.log('Poll response received:', data);
+      // Store the update data to be processed in a separate effect
+      setSocketUpdate(data);
     });
 
-    socket.on('newAnswer', (data) => {
-      console.log('New poll answer received:', data);
-      
-      // Check if this is related to our current class
-      if (data.pollId) {
-        console.log('Refreshing poll data after socket event');
-        
-        // Fetch the specific poll data directly
-        api.get(`/polls/${data.pollId}`)
-          .then(response => {
-            console.log('Updated poll data from socket event:', response.data);
-            
-            // Update the class data with the new poll information
-            if (classData && classData.polls) {
-              const updatedPolls = classData.polls.map(p => 
-                p.id === data.pollId ? response.data : p
-              );
-              
-              setClassData({
-                ...classData,
-                polls: updatedPolls
-              });
-            }
-          })
-          .catch(error => {
-            console.error('Error fetching updated poll after socket event:', error);
-          });
+    const unsubscribePollToggle = subscribe('pollToggle', (data) => {
+      console.log('Poll status toggled:', data);
+      if (data.classId === parseInt(id)) {
+        fetchClassDetails();
       }
     });
 
     return () => {
-      // Clean up socket connection on component unmount
-      socket.disconnect();
+      // Clean up event listeners on component unmount
+      unsubscribeNewPoll();
+      unsubscribePollResponse();
+      unsubscribePollToggle();
+      
+      // Leave class room
+      leaveClassRoom(id);
     };
-  }, [id]);
+  }, [id, joinClassRoom, leaveClassRoom, subscribe]);
+
+  // Handle socket updates in a separate effect to avoid dependency cycle
+  useEffect(() => {
+    if (!socketUpdate || !classData || !classData.polls) return;
+
+    try {
+      // Find the poll that was updated
+      const { poll: updatedPoll } = socketUpdate;
+      if (!updatedPoll || !updatedPoll.id) return;
+      
+      // Create a deep copy of classData to avoid reference issues
+      const updatedClassData = JSON.parse(JSON.stringify(classData));
+      
+      // Find and update the poll in the classData
+      const pollIndex = updatedClassData.polls.findIndex(p => p.id === updatedPoll.id);
+      if (pollIndex !== -1) {
+        // Update the specific poll with new data
+        updatedClassData.polls[pollIndex] = {
+          ...updatedClassData.polls[pollIndex],
+          options: updatedPoll.options,
+          responses: updatedPoll.responses || updatedClassData.polls[pollIndex].responses,
+          respondents: updatedPoll.respondents || updatedClassData.polls[pollIndex].respondents
+        };
+        
+        // Update state with the new data
+        setClassData(updatedClassData);
+        
+        // Update active poll if needed
+        if (activePoll && activePoll.id === updatedPoll.id) {
+          setActivePoll({
+            ...activePoll,
+            options: updatedPoll.options,
+            responses: updatedPoll.responses || activePoll.responses,
+            respondents: updatedPoll.respondents || activePoll.respondents
+          });
+        }
+        
+        console.log('Updated poll data in UI without refresh');
+      }
+
+      // Reset the socketUpdate after processing
+      setSocketUpdate(null);
+    } catch (error) {
+      console.error('Error processing socket update:', error);
+    }
+  }, [socketUpdate, classData, activePoll]);
+
+  // Update effect to refresh data when classData changes for real-time poll updates
+  useEffect(() => {
+    if (classData && classData.polls) {
+      // Find the active poll if any
+      const activePolls = classData.polls.filter(poll => poll.isActive);
+      if (activePolls.length > 0) {
+        // Process active poll to check if the current user has responded
+        const activePoll = activePolls[0];
+        
+        // Check if current user is in respondents list
+        const hasResponded = activePoll.respondents?.some(respondent => respondent.id === user?.id);
+        
+        // Set userResponse property based on user's response
+        const userResponseData = hasResponded ? 
+          activePoll.responses?.find(r => r.studentId === user?.id)?.optionIndex : null;
+        
+        setActivePoll({
+          ...activePoll,
+          userResponse: userResponseData
+        });
+      } else {
+        setActivePoll(null);
+      }
+    }
+  }, [classData, user?.id]);
 
   const fetchClassDetails = async () => {
     try {
       const response = await api.get(`/classes/${id}`);
       setClassData(response.data);
-      
-      // Find the active poll if any
-      if (response.data.polls && response.data.polls.length > 0) {
-        const activePolls = response.data.polls.filter(poll => poll.isActive);
-        if (activePolls.length > 0) {
-          // Process active poll to check if the current user has responded
-          const activePoll = activePolls[0];
-          
-          // Check if current user is in respondents list
-          const hasResponded = activePoll.respondents?.some(respondent => respondent.id === user?.id);
-          
-          // Set userResponse property based on user's response
-          const userResponseData = hasResponded ? 
-            activePoll.responses?.find(r => r.studentId === user?.id)?.optionIndex : null;
-          
-          setActivePoll({
-            ...activePoll,
-            userResponse: userResponseData
-          });
-        }
-      }
       
       setLoading(false);
     } catch (err) {

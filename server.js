@@ -65,8 +65,21 @@ app.use('/api/polls', pollRoutes);
 
 // Socket.io connection
 io.on('connection', (socket) => {
-  console.log('New client connected');
+  console.log('New client connected with id:', socket.id);
 
+  // Join a room for the class (for targeted updates)
+  socket.on('joinClassRoom', (classId) => {
+    console.log(`Socket ${socket.id} joining class room: ${classId}`);
+    socket.join(`class-${classId}`);
+  });
+  
+  // Leave class room
+  socket.on('leaveClassRoom', (classId) => {
+    console.log(`Socket ${socket.id} leaving class room: ${classId}`);
+    socket.leave(`class-${classId}`);
+  });
+
+  // Handle client disconnection
   socket.on('disconnect', () => {
     console.log('Client disconnected');
   });

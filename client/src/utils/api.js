@@ -1,19 +1,18 @@
 import axios from 'axios';
 
+const API_URL = 'http://localhost:5000/api';
+
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
-  withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: API_URL,
+  withCredentials: true
 });
 
-// Add a request interceptor to add the auth token to requests
+// Add request interceptor for JWT token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers['Authorization'] = `Bearer ${token}`;
     }
     return config;
   },
@@ -22,11 +21,14 @@ api.interceptors.request.use(
   }
 );
 
-// Add a response interceptor to handle 401 errors
+// Add response interceptor for handling auth errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    return response;
+  },
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response && error.response.status === 401) {
+      // Unauthorized - clear token and redirect to login
       localStorage.removeItem('token');
       window.location.href = '/login';
     }

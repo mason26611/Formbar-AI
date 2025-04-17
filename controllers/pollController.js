@@ -45,6 +45,11 @@ exports.createPoll = async (req, res) => {
       ]
     });
 
+    // Emit socket event for new poll
+    if (req.io) {
+      req.io.to(`class-${classId}`).emit('newPoll', pollWithAssociations);
+    }
+
     res.status(201).json(pollWithAssociations);
   } catch (error) {
     console.error('Create poll error:', error);
@@ -98,7 +103,10 @@ exports.submitResponse = async (req, res) => {
     }
 
     // Check if poll exists and is active
-    const poll = await Poll.findByPk(pollId);
+    const poll = await Poll.findByPk(pollId, {
+      include: [{ model: Class, as: 'class' }]
+    });
+    
     if (!poll) {
       return res.status(404).json({ message: 'Poll not found' });
     }
@@ -114,10 +122,14 @@ exports.submitResponse = async (req, res) => {
       }
     });
 
+    let isUpdate = false;
+    let previousOptionIndex = null;
+    
     // If the student has already responded, update their response
     if (existingResponse) {
       // Get previous option index to adjust counts
-      const previousOptionIndex = existingResponse.optionIndex;
+      previousOptionIndex = existingResponse.optionIndex;
+      isUpdate = true;
       
       // Update options count - decrement old choice
       const options = [...poll.options];
@@ -147,16 +159,61 @@ exports.submitResponse = async (req, res) => {
       await poll.update({ options });
     }
 
+    // Get the updated poll with latest responses and ALL needed associations
+    const updatedPoll = await Poll.findByPk(pollId, {
+      include: [
+        {
+          model: User,
+          as: 'respondents',
+          attributes: ['id', 'name', 'email']
+        },
+        {
+          model: PollResponse,
+          as: 'responses',
+          include: [
+            {
+              model: User,
+              as: 'student',
+              attributes: ['id', 'name', 'email']
+            }
+          ]
+        },
+        {
+          model: Class,
+          as: 'class',
+          attributes: ['id', 'name']
+        }
+      ]
+    });
+
+    // Get the current user for the response
+    const user = await User.findByPk(req.user.id, {
+      attributes: ['id', 'name', 'email']
+    });
+
     // Emit socket event if Socket.IO is available
     if (req.io) {
-      req.io.emit('newAnswer', {
+      const classId = poll.class?.id || poll.classId;
+      
+      console.log('Emitting pollResponse event with updated poll data');
+      req.io.to(`class-${classId}`).emit('pollResponse', {
         pollId,
+        poll: updatedPoll,
         optionIndex,
-        studentId: req.user.id
+        previousOptionIndex,
+        isUpdate,
+        responder: {
+          id: user.id,
+          name: user.name
+        },
+        classId
       });
     }
 
-    res.json({ message: 'Response submitted successfully' });
+    res.json({ 
+      message: 'Response submitted successfully', 
+      poll: updatedPoll 
+    });
   } catch (error) {
     console.error('Submit response error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -168,14 +225,36 @@ exports.submitResponse = async (req, res) => {
 // @access  Private (Teacher)
 exports.togglePoll = async (req, res) => {
   try {
-    const poll = await Poll.findByPk(req.params.pollId);
+    const pollId = req.params.pollId;
+    
+    // Find the poll
+    const poll = await Poll.findByPk(pollId, {
+      include: [{ model: Class, as: 'class' }]
+    });
+    
     if (!poll) {
       return res.status(404).json({ message: 'Poll not found' });
     }
-
-    await poll.update({ isActive: !poll.isActive });
-
-    res.json(poll);
+    
+    // Verify the user is the teacher of the class containing this poll
+    if (poll.teacherId !== req.user.id) {
+      return res.status(403).json({ message: 'You are not authorized to toggle this poll' });
+    }
+    
+    // Toggle poll status
+    const updatedPoll = await poll.update({ isActive: !poll.isActive });
+    
+    // Emit socket event for poll toggle
+    if (req.io) {
+      const classId = poll.class?.id || poll.classId;
+      req.io.to(`class-${classId}`).emit('pollToggle', {
+        pollId,
+        isActive: updatedPoll.isActive,
+        classId
+      });
+    }
+    
+    res.json(updatedPoll);
   } catch (error) {
     console.error('Toggle poll error:', error);
     res.status(500).json({ message: 'Server error' });
