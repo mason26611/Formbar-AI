@@ -398,7 +398,7 @@ const ClassDetail = () => {
       });
   };
 
-  // Convert poll data to format for chart
+  // Convert poll data to format for chart (Doughnut chart)
   const getPollChartData = (poll) => {
     if (!poll || !poll.options) return { labels: [], datasets: [] };
     
@@ -421,6 +421,27 @@ const ClassDetail = () => {
         hoverOffset: 4
       }]
     };
+  };
+
+  // Convert poll data for SimpleBarChart format
+  const getBarChartData = (poll) => {
+    if (!poll || !poll.options) return [];
+    
+    // Count responses for each option
+    const responseCounts = poll.options.map((option, index) => {
+      const count = poll.responses?.filter(r => r.optionIndex === index).length || 0;
+      // Handle different option structures
+      const optionText = typeof option === 'string' ? option : option.text || `Option ${index + 1}`;
+      
+      return {
+        name: optionText,
+        value: count,
+        optionIndex: index
+      };
+    });
+    
+    // Filter out options with zero responses for a cleaner chart
+    return responseCounts.filter(item => item.value > 0);
   };
 
   if (loading) {
@@ -575,7 +596,42 @@ const ClassDetail = () => {
                               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                                 Response Distribution
                               </Typography>
-                              <SimpleBarChart data={getPollChartData(poll)} />
+                              <Box sx={{ height: 300, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                <Doughnut 
+                                  data={getPollChartData(poll)}
+                                  options={{
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: {
+                                      legend: {
+                                        position: 'right',
+                                        labels: {
+                                          padding: 20,
+                                          boxWidth: 12,
+                                          font: {
+                                            size: 12
+                                          }
+                                        }
+                                      },
+                                      tooltip: {
+                                        callbacks: {
+                                          label: (context) => {
+                                            const label = context.label || '';
+                                            const value = context.raw || 0;
+                                            const total = context.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                            const percentage = Math.round((value / total) * 100);
+                                            return `${label}: ${value} (${percentage}%)`;
+                                          }
+                                        }
+                                      }
+                                    },
+                                    cutout: '60%'
+                                  }}
+                                />
+                              </Box>
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
+                                Total Responses: {poll.responses?.length || 0}
+                              </Typography>
                             </Box>
                           )}
                         </CardContent>
