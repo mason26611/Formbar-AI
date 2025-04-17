@@ -39,7 +39,8 @@ import {
   Cancel as CancelIcon,
   Person as PersonIcon,
   ContentCopy as ContentCopyIcon,
-  BarChart as BarChartIcon
+  BarChart as BarChartIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import api from '../utils/api';
@@ -174,8 +175,17 @@ const ClassDetail = () => {
   const [activePoll, setActivePoll] = useState(null);
   const { joinClassRoom, leaveClassRoom, subscribe } = useSocket();
   const [socketUpdate, setSocketUpdate] = useState(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [studentToRemove, setStudentToRemove] = useState(null);
+  const [regeneratingCode, setRegeneratingCode] = useState(false);
 
   useEffect(() => {
+    if (!id) {
+      setError('Class ID is missing');
+      setLoading(false);
+      return;
+    }
+    
     fetchClassDetails();
 
     // Join class room for real-time updates
@@ -202,16 +212,36 @@ const ClassDetail = () => {
       }
     });
 
+    // Listen for student removal
+    const unsubscribeStudentRemoved = subscribe('studentRemoved', (data) => {
+      console.log('Student removed event received:', data);
+      
+      // Check if current user is the one being removed
+      if (user && data.studentId === user.id && data.classId === parseInt(id)) {
+        // Display notification
+        setError('You have been removed from this class.');
+        
+        // Redirect to dashboard after a short delay
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 3000);
+      } else {
+        // If another student was removed, just refresh the class data
+        fetchClassDetails();
+      }
+    });
+
     return () => {
       // Clean up event listeners on component unmount
       unsubscribeNewPoll();
       unsubscribePollResponse();
       unsubscribePollToggle();
+      unsubscribeStudentRemoved();
       
       // Leave class room
       leaveClassRoom(id);
     };
-  }, [id, joinClassRoom, leaveClassRoom, subscribe]);
+  }, [id, joinClassRoom, leaveClassRoom, subscribe, user, navigate]);
 
   // Handle socket updates in a separate effect to avoid dependency cycle
   useEffect(() => {
@@ -261,39 +291,63 @@ const ClassDetail = () => {
 
   // Update effect to refresh data when classData changes for real-time poll updates
   useEffect(() => {
-    if (classData && classData.polls) {
-      // Find the active poll if any
-      const activePolls = classData.polls.filter(poll => poll.isActive);
-      if (activePolls.length > 0) {
-        // Process active poll to check if the current user has responded
-        const activePoll = activePolls[0];
-        
-        // Check if current user is in respondents list
-        const hasResponded = activePoll.respondents?.some(respondent => respondent.id === user?.id);
-        
-        // Set userResponse property based on user's response
-        const userResponseData = hasResponded ? 
-          activePoll.responses?.find(r => r.studentId === user?.id)?.optionIndex : null;
-        
-        setActivePoll({
-          ...activePoll,
-          userResponse: userResponseData
-        });
-      } else {
-        setActivePoll(null);
-      }
+    if (!classData || !classData.polls || !user) return;
+    
+    // Find the active poll if any
+    const activePolls = classData.polls.filter(poll => poll.isActive);
+    if (activePolls.length > 0) {
+      // Process active poll to check if the current user has responded
+      const activePoll = activePolls[0];
+      
+      // Check if current user is in respondents list
+      const hasResponded = activePoll.respondents?.some(respondent => respondent && respondent.id === user.id);
+      
+      // Set userResponse property based on user's response
+      const userResponseData = hasResponded ? 
+        activePoll.responses?.find(r => r && r.studentId === user.id)?.optionIndex : null;
+      
+      setActivePoll({
+        ...activePoll,
+        userResponse: userResponseData
+      });
+    } else {
+      setActivePoll(null);
     }
-  }, [classData, user?.id]);
+  }, [classData, user]);
 
   const fetchClassDetails = async () => {
+    if (!id) {
+      setError('Class ID is missing');
+      setLoading(false);
+      return;
+    }
+    
     try {
       const response = await api.get(`/classes/${id}`);
       setClassData(response.data);
+      
+      // For students, verify they're still enrolled in the class
+      if (user && user.role === 'student') {
+        const isEnrolled = response.data.students.some(student => student && student.id === user.id);
+        if (!isEnrolled) {
+          setError('You are no longer enrolled in this class.');
+          setTimeout(() => {
+            navigate('/dashboard');
+          }, 2000);
+          return;
+        }
+      }
       
       setLoading(false);
     } catch (err) {
       if (err.response?.status === 401) {
         navigate('/login');
+      } else if (err.response?.status === 403) {
+        // No access or removed from class
+        setError('You do not have access to this class.');
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 2000);
       } else {
         setError('Failed to fetch class details');
       }
@@ -316,8 +370,13 @@ const ClassDetail = () => {
   };
 
   const handleSubmitResponse = async (pollId, option) => {
+    if (!pollId || option === undefined || option === null) {
+      setError("Invalid poll or option");
+      return;
+    }
+    
     try {
-      const isChangingResponse = activePoll.userResponse !== null && activePoll.userResponse !== undefined;
+      const isChangingResponse = activePoll?.userResponse !== null && activePoll?.userResponse !== undefined;
       
       // Update local state right away for immediate feedback
       if (activePoll && activePoll.id === pollId) {
@@ -342,7 +401,7 @@ const ClassDetail = () => {
         // Update the class data with the new poll information
         if (classData && classData.polls) {
           const updatedPolls = classData.polls.map(p => 
-            p.id === pollId ? updatedPollResponse.data : p
+            p && p.id === pollId ? updatedPollResponse.data : p
           );
           
           setClassData({
@@ -404,11 +463,11 @@ const ClassDetail = () => {
     
     // Extract option names and response counts
     const labels = poll.options.map((option, index) => 
-      typeof option === 'string' ? option : option.text || `Option ${index + 1}`
+      typeof option === 'string' ? option : option?.text || `Option ${index + 1}`
     );
     
     const data = poll.options.map((option, index) => 
-      poll.responses?.filter(r => r.optionIndex === index).length || 0
+      poll.responses?.filter(r => r && r.optionIndex === index).length || 0
     );
     
     // Return in Chart.js format
@@ -429,9 +488,9 @@ const ClassDetail = () => {
     
     // Count responses for each option
     const responseCounts = poll.options.map((option, index) => {
-      const count = poll.responses?.filter(r => r.optionIndex === index).length || 0;
+      const count = poll.responses?.filter(r => r && r.optionIndex === index).length || 0;
       // Handle different option structures
-      const optionText = typeof option === 'string' ? option : option.text || `Option ${index + 1}`;
+      const optionText = typeof option === 'string' ? option : option?.text || `Option ${index + 1}`;
       
       return {
         name: optionText,
@@ -442,6 +501,38 @@ const ClassDetail = () => {
     
     // Filter out options with zero responses for a cleaner chart
     return responseCounts.filter(item => item.value > 0);
+  };
+
+  const handleRemoveStudent = async (studentId, studentName) => {
+    setStudentToRemove({ id: studentId, name: studentName });
+    setConfirmDialogOpen(true);
+  };
+
+  const confirmRemoveStudent = async () => {
+    try {
+      await api.delete(`/classes/${id}/students/${studentToRemove.id}`);
+      setConfirmDialogOpen(false);
+      setStudentToRemove(null);
+      fetchClassDetails();
+      setError('');
+    } catch (err) {
+      console.error('Failed to remove student:', err);
+      setError('Failed to remove student');
+    }
+  };
+
+  const regenerateClassCode = async () => {
+    try {
+      setRegeneratingCode(true);
+      await api.post(`/classes/${id}/regenerate-code`);
+      fetchClassDetails();
+      setRegeneratingCode(false);
+      setError('');
+    } catch (err) {
+      console.error('Failed to regenerate class code:', err);
+      setError('Failed to regenerate class code');
+      setRegeneratingCode(false);
+    }
   };
 
   if (loading) {
@@ -474,8 +565,8 @@ const ClassDetail = () => {
             {classData.subject}
           </Typography>
           
-          {/* Display join code for teachers */}
-          {isTeacher && (
+          {/* Display join code for teachers with regenerate button */}
+          {isTeacher && classData.code && (
             <Paper sx={{ mt: 2, p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 400 }}>
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">
@@ -485,11 +576,22 @@ const ClassDetail = () => {
                   {classData.code}
                 </Typography>
               </Box>
-              <Tooltip title={codeCopied ? "Copied!" : "Copy code"}>
-                <IconButton onClick={() => copyClassCode(classData.code)}>
-                  <ContentCopyIcon />
-                </IconButton>
-              </Tooltip>
+              <Box sx={{ display: 'flex' }}>
+                <Tooltip title={codeCopied ? "Copied!" : "Copy code"}>
+                  <IconButton onClick={() => copyClassCode(classData.code)}>
+                    <ContentCopyIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Regenerate code">
+                  <IconButton 
+                    onClick={regenerateClassCode} 
+                    disabled={regeneratingCode}
+                    color="primary"
+                  >
+                    {regeneratingCode ? <CircularProgress size={24} /> : <RefreshIcon />}
+                  </IconButton>
+                </Tooltip>
+              </Box>
             </Paper>
           )}
         </Box>
@@ -528,7 +630,7 @@ const ClassDetail = () => {
                 </Box>
 
                 <Grid container spacing={3}>
-                  {classData.polls?.map((poll) => (
+                  {classData.polls?.map((poll) => poll && (
                     <Grid item xs={12} key={poll.id}>
                       <StyledCard>
                         <CardContent>
@@ -544,9 +646,9 @@ const ClassDetail = () => {
                           </Box>
 
                           <Grid container spacing={2}>
-                            {poll.options.map((option, index) => {
+                            {poll.options?.map((option, index) => {
                               // Calculate response count for this option
-                              const responseCount = poll.responses?.filter(r => r.optionIndex === index).length || 0;
+                              const responseCount = poll.responses?.filter(r => r && r.optionIndex === index).length || 0;
                               // Get total responses
                               const totalResponses = poll.responses?.length || 0;
                               // Calculate percentage (avoid division by zero)
@@ -568,7 +670,7 @@ const ClassDetail = () => {
                                   >
                                     <Box sx={{ zIndex: 1, width: '100%', display: 'flex', justifyContent: 'space-between' }}>
                                       <Typography>
-                                        {typeof option === 'string' ? option : option.text || `Option ${index + 1}`}
+                                        {typeof option === 'string' ? option : option?.text || `Option ${index + 1}`}
                                       </Typography>
                                       <Typography>
                                         {responseCount} ({percentage}%)
@@ -654,9 +756,20 @@ const ClassDetail = () => {
             {activeTab === 1 && (
               <Box>
                 <List>
-                  {classData.students?.map((student) => (
+                  {classData.students?.map((student) => student && (
                     <React.Fragment key={student.id}>
-                      <ListItem>
+                      <ListItem
+                        secondaryAction={
+                          <IconButton 
+                            edge="end" 
+                            aria-label="delete" 
+                            onClick={() => handleRemoveStudent(student.id, student.name)}
+                            color="error"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        }
+                      >
                         <ListItemAvatar>
                           <Avatar>
                             <PersonIcon />
@@ -699,11 +812,11 @@ const ClassDetail = () => {
                   </Typography>
                   
                   <Grid container spacing={2}>
-                    {activePoll.options.map((option, index) => {
+                    {activePoll.options?.map((option, index) => {
                       const hasVoted = activePoll.userResponse !== null && activePoll.userResponse !== undefined;
                       const isSelected = activePoll.userResponse === index;
                       // Handle different option structures
-                      const optionText = typeof option === 'string' ? option : option.text || `Option ${index + 1}`;
+                      const optionText = typeof option === 'string' ? option : option?.text || `Option ${index + 1}`;
                       
                       return (
                         <Grid item xs={12} sm={6} key={index}>
@@ -767,7 +880,7 @@ const ClassDetail = () => {
               
               {classData.polls && classData.polls.length > 0 ? (
                 <Grid container spacing={3}>
-                  {classData.polls.filter(poll => poll.responses && poll.responses.length > 0).map(poll => (
+                  {classData.polls.filter(poll => poll && poll.responses && poll.responses.length > 0).map(poll => (
                     <Grid item xs={12} md={6} key={poll.id}>
                       <StyledCard>
                         <CardContent>
@@ -869,6 +982,25 @@ const ClassDetail = () => {
               disabled={!newPoll.question || newPoll.options.some(opt => !opt)}
             >
               Create
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Confirmation dialog for student removal */}
+        <Dialog
+          open={confirmDialogOpen}
+          onClose={() => setConfirmDialogOpen(false)}
+        >
+          <DialogTitle>Remove Student</DialogTitle>
+          <DialogContent>
+            <Typography>
+              Are you sure you want to remove {studentToRemove?.name} from this class?
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
+            <Button onClick={confirmRemoveStudent} color="error" variant="contained">
+              Remove
             </Button>
           </DialogActions>
         </Dialog>

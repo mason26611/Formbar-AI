@@ -2,6 +2,7 @@ const Class = require('../models/Class');
 const User = require('../models/User');
 const Poll = require('../models/Poll');
 const PollResponse = require('../models/PollResponse');
+const ClassStudents = require('../models/ClassStudents');
 const sequelize = require('../config/database');
 
 // @desc    Get all classes for current user
@@ -274,9 +275,124 @@ const getClassById = async (req, res) => {
       return res.status(404).json({ message: 'Class not found' });
     }
 
+    // Check access rights
+    const isTeacher = classData.teacherId === req.user.id;
+    const isStudent = classData.students.some(student => student.id === req.user.id);
+    
+    // If user is neither teacher nor enrolled student, deny access
+    if (req.user.role === 'student' && !isStudent) {
+      return res.status(403).json({ 
+        message: 'You are not enrolled in this class',
+        notEnrolled: true
+      });
+    }
+    
+    if (req.user.role === 'teacher' && !isTeacher) {
+      return res.status(403).json({ 
+        message: 'You are not authorized to access this class',
+        notAuthorized: true
+      });
+    }
+
     res.json(classData);
   } catch (error) {
     console.error('Get class error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Remove a student from a class
+// @route   DELETE /api/classes/:classId/students/:studentId
+// @access  Private (Teacher)
+const removeStudent = async (req, res) => {
+  try {
+    const { classId, studentId } = req.params;
+    
+    // Check if the class exists
+    const classObj = await Class.findByPk(classId);
+    if (!classObj) {
+      return res.status(404).json({ message: 'Class not found' });
+    }
+    
+    // Verify the user is the teacher of the class
+    if (classObj.teacherId !== req.user.id) {
+      return res.status(403).json({ message: 'You are not authorized to remove students from this class' });
+    }
+    
+    // Check if the student is in the class
+    const classStudent = await ClassStudents.findOne({
+      where: {
+        classId,
+        studentId
+      }
+    });
+    
+    if (!classStudent) {
+      return res.status(404).json({ message: 'Student not found in this class' });
+    }
+    
+    // Remove the student from the class
+    await classStudent.destroy();
+    
+    // Emit socket event to notify the removed student
+    if (req.io) {
+      console.log(`Emitting studentRemoved event to class-${classId} for student ${studentId}`);
+      req.io.to(`class-${classId}`).emit('studentRemoved', {
+        classId,
+        studentId,
+        message: 'You have been removed from this class'
+      });
+    }
+    
+    res.json({ message: 'Student removed from class successfully' });
+  } catch (error) {
+    console.error('Remove student error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// @desc    Regenerate class join code
+// @route   POST /api/classes/:id/regenerate-code
+// @access  Private (Teacher)
+const regenerateClassCode = async (req, res) => {
+  try {
+    const classId = req.params.id;
+    
+    // Check if the class exists
+    const classObj = await Class.findByPk(classId);
+    if (!classObj) {
+      return res.status(404).json({ message: 'Class not found' });
+    }
+    
+    // Verify the user is the teacher of the class
+    if (classObj.teacherId !== req.user.id) {
+      return res.status(403).json({ message: 'You are not authorized to regenerate the class code' });
+    }
+    
+    // Generate a new unique code
+    let newCode;
+    let isCodeUnique = false;
+    
+    while (!isCodeUnique) {
+      // Generate a 6-character alphanumeric code
+      newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      
+      // Check if the code is already in use
+      const existingClass = await Class.findOne({ where: { code: newCode } });
+      if (!existingClass) {
+        isCodeUnique = true;
+      }
+    }
+    
+    // Update the class with the new code
+    await classObj.update({ code: newCode });
+    
+    res.json({ 
+      message: 'Class code regenerated successfully',
+      code: newCode
+    });
+  } catch (error) {
+    console.error('Regenerate class code error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -287,5 +403,7 @@ module.exports = {
   getTeacherClasses,
   getStudentClasses,
   joinClass,
-  getClassById
+  getClassById,
+  removeStudent,
+  regenerateClassCode
 }; 

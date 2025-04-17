@@ -8,7 +8,9 @@ const {
   getTeacherClasses,
   getStudentClasses,
   joinClass,
-  getClassById
+  getClassById,
+  removeStudent,
+  regenerateClassCode
 } = require('../controllers/classController');
 
 // Get all classes for current user
@@ -28,5 +30,11 @@ router.post('/join', auth, joinClass);
 
 // Get class by ID
 router.get('/:id', auth, getClassById);
+
+// Remove a student from a class
+router.delete('/:classId/students/:studentId', auth, removeStudent);
+
+// Regenerate class code
+router.post('/:id/regenerate-code', auth, regenerateClassCode);
 
 module.exports = router; 
